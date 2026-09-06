@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#059669" />
+  <title>Bora Lá - Excursões</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="assets/icon-192.png" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    .hidden-screen { display: none; }
+    .active-screen { display: block; }
+    /* reforço: garante que modais escondam mesmo se o Tailwind (CDN) demorar/falhar para carregar */
+    .hidden { display: none !important; }
+    .sidebar-link.active { background: rgba(255,255,255,0.15); border-left: 3px solid #fff; }
+    .sidebar-link[hidden] { display: none; }
+    .status-pending { background: #fef3c7; color: #92400e; }
+    .status-pedagogy_approved { background: #e0e7ff; color: #3730a3; }
+    .status-approved { background: #d1fae5; color: #065f46; }
+    .status-transit { background: #dbeafe; color: #1e40af; }
+    .status-in_transit { background: #dbeafe; color: #1e40af; }
+    .status-rejected { background: #fee2e2; color: #991b1b; }
+    .status-completed { background: #e2e8f0; color: #334155; }
+    .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 90vw; }
+    .card-hover { transition: box-shadow .15s ease, transform .15s ease; }
+    .card-hover:hover { box-shadow: 0 8px 24px rgba(0,0,0,.08); transform: translateY(-2px); }
+    .role-badge { font-size: 10px; letter-spacing: .04em; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+  <!-- TELA DE LOGIN -->
+  <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-emerald-600 to-teal-800">
+    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+      <div class="text-center mb-8">
+        <img src="assets/icon-192.png" alt="Bora Lá" class="w-20 h-20 mx-auto mb-3 rounded-2xl shadow" onerror="this.style.display='none'" />
+        <h1 class="text-3xl font-bold text-slate-800">Bora Lá</h1>
+        <p class="text-slate-500 mt-1">Sistema de Excursões • Semed Nova Lima</p>
+      </div>
+
+      <form id="loginForm" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
+          <input type="email" id="loginEmail" required placeholder="seu@email.com" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Senha</label>
+          <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-4 py-2.5 border border-slate-300 rounded-lg" />
+        </div>
+        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-lg">
+          Entrar no Sistema
+        </button>
+      </form>
+
+      <div id="demoNotice" class="mt-5 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3 hidden">
+        <strong>Modo demonstração</strong> (Supabase ainda não configurado): use qualquer senha e um
+        e-mail contendo <code>admin</code>, <code>escola</code>, <code>pedagogia</code> ou <code>motorista</code>
+        para testar cada perfil. Ex: <code>admin@teste.com</code>.
+      </div>
+
+      <div class="mt-6 text-center text-xs text-slate-500">
+        <a href="#" onclick="showConfig();return false;" class="hover:text-emerald-600">⚙️ Configurar Supabase</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- APP PRINCIPAL -->
+  <div id="appScreen" class="hidden-screen">
+    <div class="flex min-h-screen">
+      <aside class="w-64 bg-emerald-700 text-white flex flex-col">
+        <div class="p-5 border-b border-emerald-600">
+          <div class="flex items-center gap-2">
+            <img src="assets/icon-192.png" alt="" class="w-9 h-9 rounded-lg" onerror="this.style.display='none'" />
+            <div>
+              <h2 class="font-bold text-lg leading-tight">Bora Lá</h2>
+              <p class="text-xs text-emerald-200 role-badge" id="userRole">ADMIN</p>
+            </div>
+          </div>
+        </div>
+
+        <nav class="flex-1 p-3 space-y-1">
+          <a data-screen="dashboard" data-roles="admin,escola,pedagogia,motorista" onclick="showScreen('dashboard', this)" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer">
+            📊 Dashboard
+          </a>
+          <a data-screen="agenda" data-roles="admin,escola,pedagogia,motorista" onclick="showScreen('agenda', this)" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer">
+            📅 <span id="navAgendaLabel">Agenda</span>
+          </a>
+          <a data-screen="solicitacao" data-roles="admin,escola" onclick="showScreen('solicitacao', this)" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer">
+            ➕ Nova Solicitação
+          </a>
+          <a data-screen="veiculos" data-roles="admin" onclick="showScreen('veiculos', this)" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer">
+            🚌 Veículos
+          </a>
+          <a data-screen="motoristas" data-roles="admin" onclick="showScreen('motoristas', this)" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer">
+            👥 Motoristas
+          </a>
+          <a data-screen="relatorios" data-roles="admin,pedagogia" onclick="showScreen('relatorios', this)" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer">
+            🧾 Relatórios
+          </a>
+        </nav>
+
+        <div class="p-3 border-t border-emerald-600">
+          <div class="text-xs text-emerald-200 mb-2 px-2 truncate" id="userInfo">admin@sistema.com</div>
+          <button onclick="logout()" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-emerald-800 text-sm">
+            🚪 Sair
+          </button>
+        </div>
+      </aside>
+
+      <main class="flex-1 overflow-auto">
+        <header class="bg-white border-b border-slate-200 px-6 py-4">
+          <h1 class="text-xl font-bold text-slate-800" id="pageTitle">Dashboard</h1>
+          <p class="text-sm text-slate-500" id="pageSubtitle">Visão geral do sistema</p>
+        </header>
+
+        <div class="p-6">
+          <!-- DASHBOARD -->
+          <section id="screen-dashboard" class="active-screen">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div class="bg-white rounded-xl p-5 border">
+                <div class="text-sm text-slate-500 mb-2">Viagens Hoje</div>
+                <div class="text-3xl font-bold text-emerald-600" id="statHoje">0</div>
+              </div>
+              <div class="bg-white rounded-xl p-5 border">
+                <div class="text-sm text-slate-500 mb-2">Pendentes</div>
+                <div class="text-3xl font-bold text-amber-600" id="statPendentes">0</div>
+              </div>
+              <div class="bg-white rounded-xl p-5 border">
+                <div class="text-sm text-slate-500 mb-2">Aprovadas</div>
+                <div class="text-3xl font-bold text-blue-600" id="statAprovadas">0</div>
+              </div>
+              <div class="bg-white rounded-xl p-5 border">
+                <div class="text-sm text-slate-500 mb-2">Alunos</div>
+                <div class="text-3xl font-bold text-purple-600" id="statAlunos">0</div>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-xl border p-5">
+              <h3 class="font-semibold mb-4">Próximas Viagens</h3>
+              <div id="proximasViagens" class="space-y-2"></div>
+            </div>
+          </section>
+
+          <!-- AGENDA -->
+          <section id="screen-agenda" class="hidden-screen">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex flex-wrap items-end gap-3 mb-4">
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">Data</label>
+                  <input type="date" id="filtroData" onchange="filtrarAgenda()" class="px-3 py-2 border rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">Status</label>
+                  <select id="filtroStatus" onchange="filtrarAgenda()" class="px-3 py-2 border rounded-lg text-sm">
+                    <option value="">Todos</option>
+                    <option value="pending">Pendente</option>
+                    <option value="pedagogy_approved">Aprovada (Pedagogia)</option>
+                    <option value="approved">Aprovada</option>
+                    <option value="in_transit">Em trânsito</option>
+                    <option value="completed">Concluída</option>
+                    <option value="rejected">Recusada</option>
+                  </select>
+                </div>
+                <button onclick="document.getElementById('filtroData').value='';document.getElementById('filtroStatus').value='';filtrarAgenda();" class="px-3 py-2 text-sm text-slate-500 hover:text-slate-700">Limpar filtros</button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs uppercase text-slate-500">
+                      <th class="px-4 py-2">Data/Hora</th>
+                      <th class="px-4 py-2">Escola</th>
+                      <th class="px-4 py-2">Destino</th>
+                      <th class="px-4 py-2">Alunos</th>
+                      <th class="px-4 py-2">Veículo/Motorista</th>
+                      <th class="px-4 py-2">Status</th>
+                      <th class="px-4 py-2">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="agendaTable" class="divide-y divide-slate-100"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- NOVA SOLICITAÇÃO (WIZARD) -->
+          <section id="screen-solicitacao" class="hidden-screen">
+            <div class="bg-white rounded-xl border p-5 max-w-2xl">
+              <div class="flex items-center gap-2 mb-2 text-sm text-slate-500">
+                <span>Passo <span id="wizardStep">1</span> de 5</span>
+              </div>
+              <div class="flex gap-1 mb-6">
+                <div id="prog1" class="h-1.5 flex-1 bg-emerald-500 rounded"></div>
+                <div id="prog2" class="h-1.5 flex-1 bg-slate-200 rounded"></div>
+                <div id="prog3" class="h-1.5 flex-1 bg-slate-200 rounded"></div>
+                <div id="prog4" class="h-1.5 flex-1 bg-slate-200 rounded"></div>
+                <div id="prog5" class="h-1.5 flex-1 bg-slate-200 rounded"></div>
+              </div>
+
+              <!-- STEP 1: ESCOLA -->
+              <div id="step1">
+                <h3 class="font-semibold mb-4">Escola solicitante</h3>
+                <label class="block text-sm font-medium mb-1">Escola</label>
+                <select id="wEscola" class="w-full px-3 py-2 border rounded-lg"></select>
+                <p class="text-xs text-slate-400 mt-2">A escola define quem poderá acompanhar esta solicitação.</p>
+              </div>
+
+              <!-- STEP 2: DESTINO -->
+              <div id="step2" class="hidden">
+                <h3 class="font-semibold mb-4">Destino da excursão</h3>
+                <div class="space-y-4">
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Destino</label>
+                    <input type="text" id="wDestino" placeholder="Ex: Museu de Ciências" class="w-full px-3 py-2 border rounded-lg" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Cidade</label>
+                    <input type="text" id="wCidade" placeholder="Ex: Nova Lima" class="w-full px-3 py-2 border rounded-lg" />
+                    <p class="text-xs text-slate-400 mt-1">Se for fora de Nova Lima, o sistema vai avisar sobre a necessidade de ATF.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- STEP 3: DATA/HORA -->
+              <div id="step3" class="hidden">
+                <h3 class="font-semibold mb-4">Data e horário</h3>
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Data</label>
+                    <input type="date" id="wData" class="w-full px-3 py-2 border rounded-lg" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Horário de saída</label>
+                    <input type="time" id="wHora" class="w-full px-3 py-2 border rounded-lg" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Horário de retorno (previsto)</label>
+                    <input type="time" id="wHoraRetorno" class="w-full px-3 py-2 border rounded-lg" />
+                  </div>
+                </div>
+              </div>
+
+              <!-- STEP 4: PARTICIPANTES -->
+              <div id="step4" class="hidden">
+                <h3 class="font-semibold mb-4">Participantes e recorrência</h3>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Nº de Alunos</label>
+                    <input type="number" id="wAlunos" min="0" value="0" class="w-full px-3 py-2 border rounded-lg" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium mb-1">Nº de Acompanhantes</label>
+                    <input type="number" id="wAcompanhantes" min="0" value="0" class="w-full px-3 py-2 border rounded-lg" />
+                  </div>
+                </div>
+                <label class="block text-sm font-medium mb-2">Tipo de evento</label>
+                <div class="space-y-2 text-sm">
+                  <label class="flex items-center gap-2"><input type="radio" name="wRecorrencia" value="unico" checked /> Evento único</label>
+                  <label class="flex items-center gap-2"><input type="radio" name="wRecorrencia" value="semanal" /> Continuado semanal</label>
+                  <label class="flex items-center gap-2"><input type="radio" name="wRecorrencia" value="quinzenal" /> Continuado quinzenal</label>
+                  <label class="flex items-center gap-2"><input type="radio" name="wRecorrencia" value="mensal" /> Continuado mensal</label>
+                </div>
+                <div class="mt-4">
+                  <label class="block text-sm font-medium mb-1">Observações</label>
+                  <textarea id="wObservacoes" rows="2" class="w-full px-3 py-2 border rounded-lg"></textarea>
+                </div>
+              </div>
+
+              <!-- STEP 5: RESUMO -->
+              <div id="step5" class="hidden">
+                <h3 class="font-semibold mb-4">Confirmar solicitação</h3>
+                <div id="resumoSolicitacao" class="bg-slate-50 border rounded-lg p-4 text-sm space-y-1 mb-4"></div>
+                <div id="sugestaoVeiculos" class="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-sm text-emerald-900"></div>
+              </div>
+
+              <div class="flex justify-between mt-6">
+                <button id="btnPrev" onclick="wizardPrev()" class="hidden px-4 py-2 border rounded-lg text-sm">← Voltar</button>
+                <button id="btnNext" onclick="wizardNext()" class="ml-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-sm">Próximo →</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- VEÍCULOS -->
+          <section id="screen-veiculos" class="hidden-screen">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="font-semibold">Veículos</h3>
+                <button onclick="openVehicleModal()" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm">+ Adicionar veículo</button>
+              </div>
+              <div id="veiculosGrid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+            </div>
+          </section>
+
+          <!-- MOTORISTAS -->
+          <section id="screen-motoristas" class="hidden-screen">
+            <div class="bg-white rounded-xl border p-5">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="font-semibold">Motoristas</h3>
+                <button onclick="openDriverModal()" class="px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm">+ Adicionar motorista</button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-xs uppercase text-slate-500">
+                      <th class="px-4 py-2">Nome</th>
+                      <th class="px-4 py-2">CNH</th>
+                      <th class="px-4 py-2">Telefone</th>
+                      <th class="px-4 py-2">Cooperativa</th>
+                      <th class="px-4 py-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="motoristasTable" class="divide-y divide-slate-100"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- RELATÓRIOS -->
+          <section id="screen-relatorios" class="hidden-screen">
+            <div class="bg-white rounded-xl border p-5 max-w-xl">
+              <h3 class="font-semibold mb-2">Relatórios</h3>
+              <p class="text-sm text-slate-500 mb-4">Gere um PDF com a agenda de viagens filtrada na tela "Agenda".</p>
+              <button onclick="exportPDF('agenda')" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-sm">
+                📄 Exportar Agenda em PDF
+              </button>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast hidden bg-white border rounded-lg shadow-xl px-4 py-3">
+    <span id="toastMsg" class="text-sm font-medium"></span>
+  </div>
+
+  <!-- MODAL CONFIG SUPABASE -->
+  <div id="configModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-6 max-w-md w-full">
+      <h3 class="font-bold text-lg mb-4">⚙️ Configurar Supabase</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Project URL</label>
+          <input type="text" id="cfgUrl" placeholder="https://xxxx.supabase.co" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Anon Key</label>
+          <input type="text" id="cfgKey" placeholder="eyJhbGciOi..." class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeConfig()" class="px-4 py-2 bg-slate-100 rounded-lg text-sm">Cancelar</button>
+        <button onclick="saveConfig()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ATRIBUIR VEÍCULO/MOTORISTA (aprovação final do admin) -->
+  <div id="assignModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-6 max-w-md w-full">
+      <h3 class="font-bold text-lg mb-4">🚌 Aprovar e atribuir veículo</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Veículo</label>
+          <select id="assignVeiculo" class="w-full px-3 py-2 border rounded-lg text-sm"></select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Motorista</label>
+          <select id="assignMotorista" class="w-full px-3 py-2 border rounded-lg text-sm"></select>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeAssignModal()" class="px-4 py-2 bg-slate-100 rounded-lg text-sm">Cancelar</button>
+        <button onclick="confirmAssign()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Confirmar aprovação</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL RECUSAR VIAGEM -->
+  <div id="rejectModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-6 max-w-md w-full">
+      <h3 class="font-bold text-lg mb-4">❌ Recusar solicitação</h3>
+      <label class="block text-sm font-medium mb-1">Motivo (opcional)</label>
+      <textarea id="rejectMotivo" rows="3" class="w-full px-3 py-2 border rounded-lg text-sm"></textarea>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeRejectModal()" class="px-4 py-2 bg-slate-100 rounded-lg text-sm">Cancelar</button>
+        <button onclick="confirmReject()" class="px-4 py-2 bg-red-600 text-white rounded-lg text-sm">Confirmar recusa</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ADICIONAR VEÍCULO -->
+  <div id="vehicleModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-6 max-w-md w-full">
+      <h3 class="font-bold text-lg mb-4">🚌 Novo veículo</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Placa</label>
+          <input type="text" id="newVeiculoPlaca" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Tipo</label>
+          <select id="newVeiculoTipo" class="w-full px-3 py-2 border rounded-lg text-sm">
+            <option value="micro-onibus">Micro-ônibus</option>
+            <option value="van">Van</option>
+            <option value="onibus">Ônibus</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Capacidade (lugares)</label>
+          <input type="number" id="newVeiculoCapacidade" min="1" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Cooperativa</label>
+          <input type="text" id="newVeiculoCooperativa" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeVehicleModal()" class="px-4 py-2 bg-slate-100 rounded-lg text-sm">Cancelar</button>
+        <button onclick="confirmAddVehicle()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ADICIONAR MOTORISTA -->
+  <div id="driverModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-2xl p-6 max-w-md w-full">
+      <h3 class="font-bold text-lg mb-4">👤 Novo motorista</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium mb-1">Nome</label>
+          <input type="text" id="newMotoristaNome" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">CNH</label>
+          <input type="text" id="newMotoristaCnh" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Telefone</label>
+          <input type="text" id="newMotoristaTelefone" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Cooperativa</label>
+          <input type="text" id="newMotoristaCooperativa" class="w-full px-3 py-2 border rounded-lg text-sm" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4">
+        <button onclick="closeDriverModal()" class="px-4 py-2 bg-slate-100 rounded-lg text-sm">Cancelar</button>
+        <button onclick="confirmAddDriver()" class="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
