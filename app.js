@@ -2,6 +2,13 @@
 // BORA LÁ - EXCURSÕES | Lógica principal com Supabase
 // ============================================================
 
+// Credenciais públicas do projeto Supabase do Bora Lá (a chave "anon" é feita para ser
+// pública - o que protege os dados de verdade são as regras de RLS no banco, não esta chave).
+// Se algum dia precisar trocar de projeto sem mexer no código, ainda dá pra sobrescrever
+// pela tela "⚙️ Configurar Supabase" (o que for salvo lá tem prioridade sobre isto aqui).
+const DEFAULT_SUPABASE_URL = 'https://rjuzhscynuleypaewgak.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJqdXpoc2N5bnVsZXlwYWV3Z2FrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2NTQwNDAsImV4cCI6MjEwNDIzMDA0MH0.enT2gJB4dy2xz_Z91tPY4ysoJ-GEEn2dpo_RHiy5jAs';
+
 let supabase = null;
 let currentUser = null;
 let wizardStep = 1;
@@ -94,8 +101,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ============ SUPABASE ============
 function initSupabase() {
-  const url = localStorage.getItem('sb_url');
-  const key = localStorage.getItem('sb_key');
+  const url = localStorage.getItem('sb_url') || DEFAULT_SUPABASE_URL;
+  const key = localStorage.getItem('sb_key') || DEFAULT_SUPABASE_ANON_KEY;
 
   if (url && key) {
     try {
