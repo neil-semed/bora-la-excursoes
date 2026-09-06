@@ -1,26 +1,26 @@
 // ============================================================
 // BORA LÁ - EXCURSÕES | Lógica principal com Supabase
 // ============================================================
- 
+
 // Credenciais públicas do projeto Supabase do Bora Lá (a chave "anon" é feita para ser
 // pública - o que protege os dados de verdade são as regras de RLS no banco, não esta chave).
 // Se algum dia precisar trocar de projeto sem mexer no código, ainda dá pra sobrescrever
 // pela tela "⚙️ Configurar Supabase" (o que for salvo lá tem prioridade sobre isto aqui).
 const DEFAULT_SUPABASE_URL = 'https://rjuzhscynuleypaewgak.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJqdXpoc2N5bnVsZXlwYWV3Z2FrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2NTQwNDAsImV4cCI6MjEwNDIzMDA0MH0.enT2gJB4dy2xz_Z91tPY4ysoJ-GEEn2dpo_RHiy5jAs';
- 
+
 let sb = null;
 let currentUser = null;
 let wizardStep = 1;
- 
+
 let schools = [];
 let vehicles = [];
 let drivers = [];
 let agenda = [];
- 
+
 let assignTargetId = null;
 let rejectTargetId = null;
- 
+
 // permissão de tela por perfil (espelha data-roles do index.html)
 const SCREEN_ROLES = {
   dashboard: ['admin', 'escola', 'pedagogia', 'motorista'],
@@ -30,36 +30,36 @@ const SCREEN_ROLES = {
   motoristas: ['admin'],
   relatorios: ['admin', 'pedagogia'],
 };
- 
+
 const ROLE_DEFAULT_SCREEN = {
   admin: 'dashboard',
   pedagogia: 'dashboard',
   escola: 'dashboard',
   motorista: 'agenda',
 };
- 
+
 const ROLE_LABELS = { admin: 'Admin', escola: 'Escola', pedagogia: 'Pedagogia', motorista: 'Motorista' };
- 
+
 // ============ DADOS DE DEMONSTRAÇÃO (usados quando o Supabase não está configurado) ============
 const DEMO_SCHOOLS = [
   { id: 's1', name: 'EMEF Prof. João Silva', address: 'Rua das Flores, 100 - Centro', contact: '(31) 3581-0000' },
   { id: 's2', name: 'EMEF Maria Aparecida', address: 'Av. Brasil, 500 - Cristina', contact: '(31) 3581-0001' },
   { id: 's3', name: 'EE Prof. Carlos Drumond', address: 'Rua Minas Gerais, 200 - Vila Operária', contact: '(31) 3581-0002' },
 ];
- 
+
 const DEMO_VEHICLES = [
   { id: 'v1', plate: 'ABC-1234', type: 'micro-onibus', capacity: 32, cooperative: 'CoopTrans', active: true },
   { id: 'v2', plate: 'DEF-5678', type: 'van', capacity: 15, cooperative: 'CoopTrans', active: true },
   { id: 'v3', plate: 'GHI-9012', type: 'micro-onibus', capacity: 32, cooperative: 'TransNova', active: true },
 ];
- 
+
 const DEMO_DRIVERS = [
   { id: 'd1', name: 'João Silva', cnh: '01234567890', phone: '(31) 99999-1111', cooperative: 'CoopTrans', active: true },
   { id: 'd2', name: 'Pedro Santos', cnh: '09876543210', phone: '(31) 99999-2222', cooperative: 'CoopTrans', active: true },
 ];
- 
+
 function fmtDate(d) { return d.toISOString().split('T')[0]; }
- 
+
 function buildDemoAgenda() {
   const today = new Date();
   const addDays = (n) => { const d = new Date(today); d.setDate(d.getDate() + n); return fmtDate(d); };
@@ -72,7 +72,7 @@ function buildDemoAgenda() {
     { id: 'e6', school_id: 's3', destination: 'Parque Aquático', city: 'Contagem', trip_date: addDays(7), departure_time: '08:00', return_time: '18:00', students_count: 35, companions_count: 4, recurrence: 'unico', status: 'rejected', rejection_reason: 'Fora do calendário letivo aprovado.', notes: '', created_by: null },
   ];
 }
- 
+
 // ============ ÍCONES (tolera falha de rede ao carregar a lib externa) ============
 function safeIcons() {
   try {
@@ -81,15 +81,15 @@ function safeIcons() {
     console.warn('⚠️ Ícones (lucide) não carregaram:', e);
   }
 }
- 
+
 // ============ INICIALIZAÇÃO ============
 document.addEventListener('DOMContentLoaded', () => {
   safeIcons();
   initSupabase();
   checkAuth();
- 
+
   document.getElementById('loginForm').addEventListener('submit', handleLogin);
- 
+
   if (!sb) {
     document.getElementById('demoNotice').classList.remove('hidden');
     schools = DEMO_SCHOOLS;
@@ -98,12 +98,12 @@ document.addEventListener('DOMContentLoaded', () => {
     agenda = buildDemoAgenda();
   }
 });
- 
+
 // ============ SUPABASE ============
 function initSupabase() {
   const url = localStorage.getItem('sb_url') || DEFAULT_SUPABASE_URL;
   const key = localStorage.getItem('sb_key') || DEFAULT_SUPABASE_ANON_KEY;
- 
+
   if (url && key) {
     try {
       sb = window.supabase.createClient(url, key);
@@ -115,33 +115,21 @@ function initSupabase() {
     console.log('ℹ️ Supabase não configurado - usando modo demo');
   }
 }
- 
-function showConfig() {
-  document.getElementById('configModal').classList.remove('hidden');
-  document.getElementById('cfgUrl').value = localStorage.getItem('sb_url') || '';
-  document.getElementById('cfgKey').value = localStorage.getItem('sb_key') || '';
+
+function togglePasswordVisibility() {
+  const input = document.getElementById('loginPassword');
+  const icon = document.getElementById('togglePasswordIcon');
+  const btn = document.getElementById('togglePasswordBtn');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  if (icon) icon.textContent = showing ? '👁️' : '🙈';
+  if (btn) btn.setAttribute('aria-label', showing ? 'Mostrar senha' : 'Ocultar senha');
 }
- 
-function closeConfig() {
-  document.getElementById('configModal').classList.add('hidden');
-}
- 
-function saveConfig() {
-  const url = document.getElementById('cfgUrl').value.trim();
-  const key = document.getElementById('cfgKey').value.trim();
-  if (url && key) {
-    localStorage.setItem('sb_url', url);
-    localStorage.setItem('sb_key', key);
-    closeConfig();
-    toast('✅ Supabase configurado! Recarregando...');
-    setTimeout(() => location.reload(), 1200);
-  }
-}
- 
+
 // ============ AUTENTICAÇÃO ============
 async function checkAuth() {
   if (!sb) return;
- 
+
   const { data: { session } } = await sb.auth.getSession();
   if (session) {
     currentUser = session.user;
@@ -149,12 +137,12 @@ async function checkAuth() {
     enterApp();
   }
 }
- 
+
 async function loadUserProfile() {
   if (!sb || !currentUser) return;
- 
+
   let { data } = await sb.from('profiles').select('*').eq('id', currentUser.id).single();
- 
+
   if (!data) {
     // primeiro login: cria o perfil com papel padrão 'escola'.
     // Um admin deve ajustar o papel correto depois (veja sb/schema.sql, seção "PRIMEIRO ACESSO").
@@ -165,7 +153,7 @@ async function loadUserProfile() {
       .single();
     data = created;
   }
- 
+
   if (data) {
     currentUser.role = data.role || 'escola';
     currentUser.schoolId = data.school_id || null;
@@ -175,37 +163,49 @@ async function loadUserProfile() {
     currentUser.role = 'escola';
   }
 }
- 
+
 // ============ LOGIN ============
 async function handleLogin(e) {
   e.preventDefault();
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
- 
-  if (sb) {
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      toast('❌ ' + error.message, true);
-      return;
+
+  const btn = document.getElementById('loginSubmitBtn');
+  const btnTextoOriginal = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Entrando...'; }
+
+  try {
+    if (sb) {
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) {
+        toast('❌ ' + error.message, true);
+        return;
+      }
+      currentUser = data.user;
+      if (btn) btn.textContent = 'Carregando perfil...';
+      await loadUserProfile();
+    } else {
+      // Modo demo
+      const role = detectRole(email);
+      currentUser = {
+        id: 'demo-' + Date.now(),
+        email: email,
+        role: role,
+        schoolId: role === 'escola' ? DEMO_SCHOOLS[0].id : null,
+        driverId: role === 'motorista' ? DEMO_DRIVERS[0].id : null,
+        user_metadata: { full_name: email.split('@')[0] },
+      };
     }
-    currentUser = data.user;
-    await loadUserProfile();
-  } else {
-    // Modo demo
-    const role = detectRole(email);
-    currentUser = {
-      id: 'demo-' + Date.now(),
-      email: email,
-      role: role,
-      schoolId: role === 'escola' ? DEMO_SCHOOLS[0].id : null,
-      driverId: role === 'motorista' ? DEMO_DRIVERS[0].id : null,
-      user_metadata: { full_name: email.split('@')[0] },
-    };
+
+    await enterApp();
+  } catch (err) {
+    console.error('Erro no login:', err);
+    toast('❌ Não foi possível entrar: ' + (err && err.message ? err.message : err), true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = btnTextoOriginal || 'Entrar no Sistema'; }
   }
- 
-  enterApp();
 }
- 
+
 function detectRole(email) {
   const lower = email.toLowerCase();
   if (lower.includes('admin')) return 'admin';
@@ -214,23 +214,23 @@ function detectRole(email) {
   if (lower.includes('escola')) return 'escola';
   return 'admin';
 }
- 
+
 async function enterApp() {
   document.getElementById('loginScreen').classList.add('hidden-screen');
   document.getElementById('appScreen').classList.remove('hidden-screen');
   document.getElementById('appScreen').classList.add('active-screen');
- 
+
   document.getElementById('userRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
   document.getElementById('userInfo').textContent = currentUser.email;
- 
+
   applyRoleUI(currentUser.role);
- 
+
   await Promise.all([loadSchools(), loadVehicles(), loadDrivers()]);
   await loadAgenda();
- 
+
   showScreen(ROLE_DEFAULT_SCREEN[currentUser.role] || 'dashboard');
 }
- 
+
 function applyRoleUI(role) {
   document.querySelectorAll('.sidebar-link').forEach((a) => {
     const roles = (a.dataset.roles || '').split(',');
@@ -238,15 +238,19 @@ function applyRoleUI(role) {
   });
   document.getElementById('navAgendaLabel').textContent = role === 'motorista' ? 'Minhas Viagens' : 'Agenda';
 }
- 
+
 async function logout() {
-  if (sb) await sb.auth.signOut();
+  try {
+    if (sb) await sb.auth.signOut();
+  } catch (err) {
+    console.warn('Erro ao encerrar sessão no Supabase (seguindo com o logout local):', err);
+  }
   currentUser = null;
   document.getElementById('appScreen').classList.add('hidden-screen');
   document.getElementById('loginScreen').classList.remove('hidden-screen');
   document.getElementById('loginForm').reset();
 }
- 
+
 // ============ VISIBILIDADE POR PERFIL (espelha as políticas RLS) ============
 function getVisibleAgenda() {
   if (!currentUser) return [];
@@ -255,13 +259,13 @@ function getVisibleAgenda() {
   if (currentUser.role === 'motorista') return agenda.filter((a) => a.assigned_driver_id === currentUser.driverId);
   return [];
 }
- 
+
 // ============ NAVEGAÇÃO ============
 function showScreen(name, el) {
   if (currentUser && !(SCREEN_ROLES[name] || []).includes(currentUser.role)) {
     name = ROLE_DEFAULT_SCREEN[currentUser.role] || 'dashboard';
   }
- 
+
   document.querySelectorAll('[id^="screen-"]').forEach((sec) => {
     sec.classList.add('hidden-screen');
     sec.classList.remove('active-screen');
@@ -271,11 +275,11 @@ function showScreen(name, el) {
     target.classList.remove('hidden-screen');
     target.classList.add('active-screen');
   }
- 
+
   document.querySelectorAll('.sidebar-link').forEach((l) => l.classList.remove('active'));
   const link = el || document.querySelector('.sidebar-link[data-screen="' + name + '"]');
   if (link) link.classList.add('active');
- 
+
   const isMotoristaAgenda = name === 'agenda' && currentUser && currentUser.role === 'motorista';
   const titles = {
     dashboard: ['Dashboard', 'Visão geral do sistema'],
@@ -289,14 +293,14 @@ function showScreen(name, el) {
   };
   document.getElementById('pageTitle').textContent = titles[name]?.[0] || '';
   document.getElementById('pageSubtitle').textContent = titles[name]?.[1] || '';
- 
+
   if (name === 'dashboard') renderDashboard();
   if (name === 'agenda') renderAgenda();
   if (name === 'solicitacao') openSolicitacaoScreen();
   if (name === 'veiculos') renderVeiculos();
   if (name === 'motoristas') renderMotoristas();
 }
- 
+
 // ============ CARGA DE DADOS ============
 async function loadSchools() {
   if (sb) {
@@ -304,32 +308,32 @@ async function loadSchools() {
     schools = data || [];
   }
 }
- 
+
 async function loadVehicles() {
   if (sb) {
     const { data } = await sb.from('vehicles').select('*').order('plate');
     vehicles = data || [];
   }
 }
- 
+
 async function loadDrivers() {
   if (sb) {
     const { data } = await sb.from('drivers').select('*').order('name');
     drivers = data || [];
   }
 }
- 
+
 async function loadAgenda() {
   if (sb) {
     const { data } = await sb.from('excursions').select('*').order('trip_date', { ascending: true });
     agenda = data || [];
   }
 }
- 
+
 function schoolName(id) { return schools.find((s) => s.id === id)?.name || '—'; }
 function vehiclePlate(id) { return vehicles.find((v) => v.id === id)?.plate || null; }
 function driverName(id) { return drivers.find((d) => d.id === id)?.name || null; }
- 
+
 // ============ DASHBOARD ============
 function renderDashboard() {
   const visible = getVisibleAgenda();
@@ -338,23 +342,23 @@ function renderDashboard() {
   const pendentes = visible.filter((a) => a.status === 'pending').length;
   const aprovadas = visible.filter((a) => a.status === 'approved' || a.status === 'in_transit').length;
   const alunos = visible.reduce((s, a) => s + (a.students_count || 0), 0);
- 
+
   document.getElementById('statHoje').textContent = viagensHoje;
   document.getElementById('statPendentes').textContent = pendentes;
   document.getElementById('statAprovadas').textContent = aprovadas;
   document.getElementById('statAlunos').textContent = alunos;
- 
+
   const proximas = visible
     .filter((a) => a.trip_date >= hoje && a.status !== 'rejected')
     .sort((a, b) => (a.trip_date + a.departure_time).localeCompare(b.trip_date + b.departure_time))
     .slice(0, 5);
- 
+
   const container = document.getElementById('proximasViagens');
   if (proximas.length === 0) {
     container.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">Nenhuma viagem agendada</p>';
     return;
   }
- 
+
   container.innerHTML = proximas.map((a) => `
     <div class="flex items-center justify-between p-3 border border-slate-100 rounded-lg hover:bg-slate-50">
       <div class="flex items-center gap-3">
@@ -371,43 +375,43 @@ function renderDashboard() {
     </div>
   `).join('');
 }
- 
+
 function statusLabel(s) {
   return { pending: 'Pendente', pedagogy_approved: 'Aprov. Pedagogia', approved: 'Aprovada', in_transit: 'Em trânsito', transit: 'Em trânsito', rejected: 'Recusada', completed: 'Concluída' }[s] || s;
 }
- 
+
 // ============ AGENDA ============
 function filterAgenda() {
   const data = document.getElementById('filtroData').value;
   const status = document.getElementById('filtroStatus').value;
- 
+
   return getVisibleAgenda().filter((a) => {
     if (data && a.trip_date !== data) return false;
     if (status && a.status !== status) return false;
     return true;
   });
 }
- 
+
 function filtrarAgenda() { renderAgenda(); }
- 
+
 function renderAgenda() {
   const filtered = filterAgenda();
   const tbody = document.getElementById('agendaTable');
- 
+
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-500 text-sm">Nenhuma viagem encontrada</td></tr>';
     return;
   }
- 
+
   const role = currentUser.role;
- 
+
   tbody.innerHTML = filtered
     .sort((a, b) => (a.trip_date + a.departure_time).localeCompare(b.trip_date + b.departure_time))
     .map((a) => {
       const veiculoTxt = vehiclePlate(a.assigned_vehicle_id);
       const motoristaTxt = driverName(a.assigned_driver_id);
       const veicMotor = veiculoTxt ? `${veiculoTxt}${motoristaTxt ? ' • ' + motoristaTxt : ''}` : '<span class="text-slate-400">—</span>';
- 
+
       let acoes = '<span class="text-slate-300 text-xs">—</span>';
       if (a.status === 'pending' && (role === 'pedagogia' || role === 'admin')) {
         acoes = `
@@ -422,7 +426,7 @@ function renderAgenda() {
       } else if (a.status === 'rejected' && a.rejection_reason) {
         acoes = `<span class="text-xs text-red-500" title="${a.rejection_reason}">Motivo ⓘ</span>`;
       }
- 
+
       return `
     <tr class="hover:bg-slate-50">
       <td class="px-4 py-3 text-sm">
@@ -441,7 +445,7 @@ function renderAgenda() {
     </tr>`;
     }).join('');
 }
- 
+
 async function updateExcursion(id, patch) {
   if (sb) {
     const { error } = await sb.from('excursions').update(patch).eq('id', id);
@@ -452,14 +456,14 @@ async function updateExcursion(id, patch) {
   }
   return true;
 }
- 
+
 async function pedagogyApprove(id) {
   const ok = await updateExcursion(id, { status: 'pedagogy_approved', pedagogy_approved_by: currentUser.id, pedagogy_approved_at: new Date().toISOString() });
   if (!ok) return;
   await loadAgenda(); renderAgenda(); renderDashboard();
   toast('✅ Viagem aprovada pela pedagogia! Aguardando aprovação final do admin.');
 }
- 
+
 function openRejectModal(id) {
   rejectTargetId = id;
   document.getElementById('rejectMotivo').value = '';
@@ -472,7 +476,7 @@ async function confirmReject() {
   if (ok) { await loadAgenda(); renderAgenda(); renderDashboard(); toast('🚫 Solicitação recusada.'); }
   closeRejectModal();
 }
- 
+
 function openAssignModal(id) {
   assignTargetId = id;
   const vSel = document.getElementById('assignVeiculo');
@@ -495,7 +499,7 @@ async function confirmAssign() {
   if (ok) { await loadAgenda(); renderAgenda(); renderDashboard(); toast('✅ Viagem aprovada e veículo atribuído!'); }
   closeAssignModal();
 }
- 
+
 async function startTransit(id) {
   const ok = await updateExcursion(id, { status: 'in_transit' });
   if (ok) { await loadAgenda(); renderAgenda(); renderDashboard(); toast('🚌 Viagem iniciada!'); }
@@ -504,13 +508,13 @@ async function completeTrip(id) {
   const ok = await updateExcursion(id, { status: 'completed' });
   if (ok) { await loadAgenda(); renderAgenda(); renderDashboard(); toast('🏁 Viagem concluída!'); }
 }
- 
+
 // ============ WIZARD (NOVA SOLICITAÇÃO) ============
 function openSolicitacaoScreen() {
   populateEscolaSelect();
   resetWizard();
 }
- 
+
 function populateEscolaSelect() {
   const sel = document.getElementById('wEscola');
   sel.innerHTML = schools.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
@@ -521,7 +525,7 @@ function populateEscolaSelect() {
     sel.disabled = false;
   }
 }
- 
+
 function resetWizard() {
   wizardStep = 1;
   for (let i = 1; i <= 5; i++) {
@@ -543,7 +547,7 @@ function resetWizard() {
   const unico = document.querySelector('input[name="wRecorrencia"][value="unico"]');
   if (unico) unico.checked = true;
 }
- 
+
 function validateWizardStep(step) {
   if (step === 2) {
     if (!document.getElementById('wDestino').value.trim()) { toast('⚠️ Informe o destino.', true); return false; }
@@ -555,22 +559,22 @@ function validateWizardStep(step) {
   }
   return true;
 }
- 
+
 function wizardNext() {
   if (!validateWizardStep(wizardStep)) return;
- 
+
   if (wizardStep < 5) {
     document.getElementById('step' + wizardStep).classList.add('hidden');
     wizardStep++;
     document.getElementById('step' + wizardStep).classList.remove('hidden');
     document.getElementById('wizardStep').textContent = wizardStep;
- 
+
     for (let i = 1; i <= 5; i++) {
       document.getElementById('prog' + i).className = i <= wizardStep
         ? 'h-1.5 flex-1 bg-emerald-500 rounded'
         : 'h-1.5 flex-1 bg-slate-200 rounded';
     }
- 
+
     document.getElementById('btnPrev').classList.remove('hidden');
     if (wizardStep === 5) {
       document.getElementById('btnNext').textContent = '✓ Enviar Solicitação';
@@ -580,25 +584,25 @@ function wizardNext() {
     submitSolicitacao();
   }
 }
- 
+
 function wizardPrev() {
   if (wizardStep > 1) {
     document.getElementById('step' + wizardStep).classList.add('hidden');
     wizardStep--;
     document.getElementById('step' + wizardStep).classList.remove('hidden');
     document.getElementById('wizardStep').textContent = wizardStep;
- 
+
     for (let i = 1; i <= 5; i++) {
       document.getElementById('prog' + i).className = i <= wizardStep
         ? 'h-1.5 flex-1 bg-emerald-500 rounded'
         : 'h-1.5 flex-1 bg-slate-200 rounded';
     }
- 
+
     document.getElementById('btnNext').textContent = 'Próximo →';
     if (wizardStep === 1) document.getElementById('btnPrev').classList.add('hidden');
   }
 }
- 
+
 function renderResumo() {
   const escola = schoolName(document.getElementById('wEscola').value);
   const destino = document.getElementById('wDestino').value;
@@ -609,7 +613,7 @@ function renderResumo() {
   const alunos = parseInt(document.getElementById('wAlunos').value) || 0;
   const acompanhantes = parseInt(document.getElementById('wAcompanhantes').value) || 0;
   const recorrencia = document.querySelector('input[name="wRecorrencia"]:checked').value;
- 
+
   document.getElementById('resumoSolicitacao').innerHTML = `
     <div><strong>Escola:</strong> ${escola || '-'}</div>
     <div><strong>Destino:</strong> ${destino || '-'} (${cidade || '-'})</div>
@@ -617,12 +621,12 @@ function renderResumo() {
     <div><strong>Alunos:</strong> ${alunos} + ${acompanhantes} acompanhantes = <strong>${alunos + acompanhantes} pessoas</strong></div>
     <div><strong>Tipo:</strong> ${recorrencia === 'unico' ? 'Evento Único' : 'Continuado ' + recorrencia}</div>
   `;
- 
+
   const total = alunos + acompanhantes;
   const micros = Math.floor(total / 32);
   const resto = total % 32;
   const vans = Math.ceil(resto / 15);
- 
+
   let sug = `<strong>🚌 Sugestão Automática de Veículos:</strong><br/>`;
   if (total === 0) {
     sug += 'Informe a quantidade de alunos para calcular.';
@@ -635,7 +639,7 @@ function renderResumo() {
   }
   document.getElementById('sugestaoVeiculos').innerHTML = sug;
 }
- 
+
 async function submitSolicitacao() {
   const nova = {
     school_id: document.getElementById('wEscola').value || null,
@@ -651,7 +655,7 @@ async function submitSolicitacao() {
     status: 'pending',
     created_by: currentUser?.id || null,
   };
- 
+
   if (sb) {
     const { error } = await sb.from('excursions').insert([nova]);
     if (error) { toast('❌ Erro ao salvar: ' + error.message, true); return; }
@@ -661,13 +665,13 @@ async function submitSolicitacao() {
     agenda.push(nova);
     toast('✅ Solicitação enviada (modo demo)!');
   }
- 
+
   resetWizard();
   await loadAgenda();
   renderDashboard();
   showScreen('agenda');
 }
- 
+
 // ============ VEÍCULOS ============
 function renderVeiculos() {
   const grid = document.getElementById('veiculosGrid');
@@ -693,7 +697,7 @@ function renderVeiculos() {
   `).join('');
   safeIcons();
 }
- 
+
 function openVehicleModal() {
   ['newVeiculoPlaca', 'newVeiculoCapacidade', 'newVeiculoCooperativa'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('vehicleModal').classList.remove('hidden');
@@ -721,7 +725,7 @@ async function confirmAddVehicle() {
   closeVehicleModal();
   toast('✅ Veículo cadastrado!');
 }
- 
+
 // ============ MOTORISTAS ============
 function renderMotoristas() {
   const tbody = document.getElementById('motoristasTable');
@@ -739,7 +743,7 @@ function renderMotoristas() {
     </tr>
   `).join('');
 }
- 
+
 function openDriverModal() {
   ['newMotoristaNome', 'newMotoristaCnh', 'newMotoristaTelefone', 'newMotoristaCooperativa'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('driverModal').classList.remove('hidden');
@@ -767,7 +771,7 @@ async function confirmAddDriver() {
   closeDriverModal();
   toast('✅ Motorista cadastrado!');
 }
- 
+
 // ============ PDF ============
 function exportPDF(tipo = 'agenda') {
   if (!window.jspdf) {
@@ -777,7 +781,7 @@ function exportPDF(tipo = 'agenda') {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const rows = filterAgenda().sort((a, b) => (a.trip_date + a.departure_time).localeCompare(b.trip_date + b.departure_time));
- 
+
   doc.setFillColor(5, 150, 105);
   doc.rect(0, 0, 210, 25, 'F');
   doc.setTextColor(255, 255, 255);
@@ -787,11 +791,11 @@ function exportPDF(tipo = 'agenda') {
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.text('Semed - Nova Lima/MG', 196, 16, { align: 'right' });
- 
+
   doc.setTextColor(0, 0, 0);
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
- 
+
   if (tipo === 'agenda') {
     doc.text('Agenda de Viagens', 14, 40);
     doc.autoTable({
@@ -805,7 +809,7 @@ function exportPDF(tipo = 'agenda') {
       headStyles: { fillColor: [5, 150, 105] },
     });
   }
- 
+
   const pages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i);
@@ -813,11 +817,11 @@ function exportPDF(tipo = 'agenda') {
     doc.setTextColor(120);
     doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')} - Página ${i} de ${pages}`, 14, 290);
   }
- 
+
   doc.save(`bora-la-${tipo}-${Date.now()}.pdf`);
   toast('📄 PDF gerado com sucesso!');
 }
- 
+
 // ============ TOAST ============
 function toast(msg, isError = false) {
   const t = document.getElementById('toast');
@@ -828,7 +832,7 @@ function toast(msg, isError = false) {
   clearTimeout(window.__toastTimer);
   window.__toastTimer = setTimeout(() => t.classList.add('hidden'), 3000);
 }
- 
+
 // ============ SERVICE WORKER (PWA) ============
 // Desativado por enquanto: o cache do Service Worker estava fazendo alguns navegadores
 // mostrarem versões antigas do app mesmo depois de corrigidas, sem nenhum aviso disso
@@ -842,4 +846,3 @@ if ('serviceWorker' in navigator) {
 if (window.caches && caches.keys) {
   caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
 }
- 
