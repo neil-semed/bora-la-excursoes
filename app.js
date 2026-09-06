@@ -9,8 +9,7 @@
 const DEFAULT_SUPABASE_URL = 'https://rjuzhscynuleypaewgak.supabase.co';
 const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJqdXpoc2N5bnVsZXlwYWV3Z2FrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2NTQwNDAsImV4cCI6MjEwNDIzMDA0MH0.enT2gJB4dy2xz_Z91tPY4ysoJ-GEEn2dpo_RHiy5jAs';
 
-// Ajustado para 'supabaseClient' para evitar conflito com a global 'window.supabase' da CDN
-let supabaseClient = null;
+let supabase = null;
 let currentUser = null;
 let wizardStep = 1;
 
@@ -83,24 +82,16 @@ function safeIcons() {
   }
 }
 
-// Helper genérico para toasts/avisos
-function toast(msg, isError = false) {
-  console.log(isError ? '❌ ' + msg : 'ℹ️ ' + msg);
-  alert(msg);
-}
-
 // ============ INICIALIZAÇÃO ============
 document.addEventListener('DOMContentLoaded', () => {
   safeIcons();
   initSupabase();
   checkAuth();
 
-  const loginForm = document.getElementById('loginForm');
-  if (loginForm) loginForm.addEventListener('submit', handleLogin);
+  document.getElementById('loginForm').addEventListener('submit', handleLogin);
 
-  if (!supabaseClient) {
-    const demoNotice = document.getElementById('demoNotice');
-    if (demoNotice) demoNotice.classList.remove('hidden');
+  if (!supabase) {
+    document.getElementById('demoNotice').classList.remove('hidden');
     schools = DEMO_SCHOOLS;
     vehicles = DEMO_VEHICLES;
     drivers = DEMO_DRIVERS;
@@ -113,15 +104,15 @@ function initSupabase() {
   const url = localStorage.getItem('sb_url') || DEFAULT_SUPABASE_URL;
   const key = localStorage.getItem('sb_key') || DEFAULT_SUPABASE_ANON_KEY;
 
-  if (url && key && window.supabase && typeof window.supabase.createClient === 'function') {
+  if (url && key) {
     try {
-      supabaseClient = window.supabase.createClient(url, key);
+      supabase = window.supabase.createClient(url, key);
       console.log('✅ Supabase conectado');
     } catch (e) {
       console.warn('⚠️ Erro ao conectar Supabase:', e);
     }
   } else {
-    console.log('ℹ️ Supabase não configurado ou SDK indisponível - usando modo demo');
+    console.log('ℹ️ Supabase não configurado - usando modo demo');
   }
 }
 
@@ -149,60 +140,38 @@ function saveConfig() {
 
 // ============ AUTENTICAÇÃO ============
 async function checkAuth() {
-  if (!supabaseClient) return;
+  if (!supabase) return;
 
-  try {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (session) {
-      currentUser = session.user;
-      await loadUserProfile();
-      enterApp();
-    }
-  } catch (e) {
-    console.error('Erro ao checar autenticação:', e);
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    currentUser = session.user;
+    await loadUserProfile();
+    enterApp();
   }
 }
 
 async function loadUserProfile() {
-  if (!supabaseClient || !currentUser) return;
+  if (!supabase || !currentUser) return;
 
-  try {
-    let { data, error } = await supabaseClient.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+  let { data } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('Erro ao carregar perfil:', error);
-    }
+  if (!data) {
+    // primeiro login: cria o perfil com papel padrão 'escola'.
+    // Um admin deve ajustar o papel correto depois (veja supabase/schema.sql, seção "PRIMEIRO ACESSO").
+    const { data: created } = await supabase
+      .from('profiles')
+      .insert([{ id: currentUser.id, email: currentUser.email, role: 'escola', full_name: currentUser.email.split('@')[0] }])
+      .select()
+      .single();
+    data = created;
+  }
 
-    if (!data) {
-      // Primeiro login: cria o perfil com papel padrão 'escola'.
-      const { data: created, error: insertError } = await supabaseClient
-        .from('profiles')
-        .insert([{ 
-          id: currentUser.id, 
-          email: currentUser.email, 
-          role: 'escola', 
-          full_name: currentUser.email ? currentUser.email.split('@')[0] : 'Usuário' 
-        }])
-        .select()
-        .maybeSingle();
-
-      if (insertError) {
-        console.error('Erro ao criar perfil inicial:', insertError);
-      } else {
-        data = created;
-      }
-    }
-
-    if (data) {
-      currentUser.role = data.role || 'escola';
-      currentUser.schoolId = data.school_id || null;
-      currentUser.driverId = data.driver_id || null;
-      currentUser.user_metadata = { full_name: data.full_name || currentUser.email };
-    } else {
-      currentUser.role = 'escola';
-    }
-  } catch (e) {
-    console.error('Falha genérica no loadUserProfile:', e);
+  if (data) {
+    currentUser.role = data.role || 'escola';
+    currentUser.schoolId = data.school_id || null;
+    currentUser.driverId = data.driver_id || null;
+    currentUser.user_metadata = { full_name: data.full_name };
+  } else {
     currentUser.role = 'escola';
   }
 }
@@ -213,8 +182,8 @@ async function handleLogin(e) {
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
 
-  if (supabaseClient) {
-    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (supabase) {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       toast('❌ ' + error.message, true);
       return;
@@ -247,15 +216,12 @@ function detectRole(email) {
 }
 
 async function enterApp() {
-  document.getElementById('loginScreen')?.classList.add('hidden-screen');
-  document.getElementById('appScreen')?.classList.remove('hidden-screen');
-  document.getElementById('appScreen')?.classList.add('active-screen');
+  document.getElementById('loginScreen').classList.add('hidden-screen');
+  document.getElementById('appScreen').classList.remove('hidden-screen');
+  document.getElementById('appScreen').classList.add('active-screen');
 
-  const uRole = document.getElementById('userRole');
-  if (uRole) uRole.textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
-
-  const uInfo = document.getElementById('userInfo');
-  if (uInfo) uInfo.textContent = currentUser.email;
+  document.getElementById('userRole').textContent = ROLE_LABELS[currentUser.role] || currentUser.role;
+  document.getElementById('userInfo').textContent = currentUser.email;
 
   applyRoleUI(currentUser.role);
 
@@ -270,22 +236,18 @@ function applyRoleUI(role) {
     const roles = (a.dataset.roles || '').split(',');
     a.hidden = !roles.includes(role);
   });
-  const navAgendaLabel = document.getElementById('navAgendaLabel');
-  if (navAgendaLabel) {
-    navAgendaLabel.textContent = role === 'motorista' ? 'Minhas Viagens' : 'Agenda';
-  }
+  document.getElementById('navAgendaLabel').textContent = role === 'motorista' ? 'Minhas Viagens' : 'Agenda';
 }
 
 async function logout() {
-  if (supabaseClient) await supabaseClient.auth.signOut();
+  if (supabase) await supabase.auth.signOut();
   currentUser = null;
-  document.getElementById('appScreen')?.classList.add('hidden-screen');
-  document.getElementById('loginScreen')?.classList.remove('hidden-screen');
-  const loginForm = document.getElementById('loginForm');
-  if (loginForm) loginForm.reset();
+  document.getElementById('appScreen').classList.add('hidden-screen');
+  document.getElementById('loginScreen').classList.remove('hidden-screen');
+  document.getElementById('loginForm').reset();
 }
 
-// ============ VISIBILIDADE POR PERFIL ============
+// ============ VISIBILIDADE POR PERFIL (espelha as políticas RLS) ============
 function getVisibleAgenda() {
   if (!currentUser) return [];
   if (currentUser.role === 'admin' || currentUser.role === 'pedagogia') return agenda;
@@ -325,11 +287,8 @@ function showScreen(name, el) {
     motoristas: ['Motoristas', 'Cadastro de motoristas e cooperativas'],
     relatorios: ['Relatórios', 'Geração de PDFs e documentos'],
   };
-  
-  const pageTitle = document.getElementById('pageTitle');
-  const pageSubtitle = document.getElementById('pageSubtitle');
-  if (pageTitle) pageTitle.textContent = titles[name]?.[0] || '';
-  if (pageSubtitle) pageSubtitle.textContent = titles[name]?.[1] || '';
+  document.getElementById('pageTitle').textContent = titles[name]?.[0] || '';
+  document.getElementById('pageSubtitle').textContent = titles[name]?.[1] || '';
 
   if (name === 'dashboard') renderDashboard();
   if (name === 'agenda') renderAgenda();
@@ -340,29 +299,29 @@ function showScreen(name, el) {
 
 // ============ CARGA DE DADOS ============
 async function loadSchools() {
-  if (supabaseClient) {
-    const { data } = await supabaseClient.from('schools').select('*').order('name');
+  if (supabase) {
+    const { data } = await supabase.from('schools').select('*').order('name');
     schools = data || [];
   }
 }
 
 async function loadVehicles() {
-  if (supabaseClient) {
-    const { data } = await supabaseClient.from('vehicles').select('*').order('plate');
+  if (supabase) {
+    const { data } = await supabase.from('vehicles').select('*').order('plate');
     vehicles = data || [];
   }
 }
 
 async function loadDrivers() {
-  if (supabaseClient) {
-    const { data } = await supabaseClient.from('drivers').select('*').order('name');
+  if (supabase) {
+    const { data } = await supabase.from('drivers').select('*').order('name');
     drivers = data || [];
   }
 }
 
 async function loadAgenda() {
-  if (supabaseClient) {
-    const { data } = await supabaseClient.from('excursions').select('*').order('trip_date', { ascending: true });
+  if (supabase) {
+    const { data } = await supabase.from('excursions').select('*').order('trip_date', { ascending: true });
     agenda = data || [];
   }
 }
@@ -380,15 +339,10 @@ function renderDashboard() {
   const aprovadas = visible.filter((a) => a.status === 'approved' || a.status === 'in_transit').length;
   const alunos = visible.reduce((s, a) => s + (a.students_count || 0), 0);
 
-  const elHoje = document.getElementById('statHoje');
-  const elPendentes = document.getElementById('statPendentes');
-  const elAprovadas = document.getElementById('statAprovadas');
-  const elAlunos = document.getElementById('statAlunos');
-
-  if (elHoje) elHoje.textContent = viagensHoje;
-  if (elPendentes) elPendentes.textContent = pendentes;
-  if (elAprovadas) elAprovadas.textContent = aprovadas;
-  if (elAlunos) elAlunos.textContent = alunos;
+  document.getElementById('statHoje').textContent = viagensHoje;
+  document.getElementById('statPendentes').textContent = pendentes;
+  document.getElementById('statAprovadas').textContent = aprovadas;
+  document.getElementById('statAlunos').textContent = alunos;
 
   const proximas = visible
     .filter((a) => a.trip_date >= hoje && a.status !== 'rejected')
@@ -396,8 +350,6 @@ function renderDashboard() {
     .slice(0, 5);
 
   const container = document.getElementById('proximasViagens');
-  if (!container) return;
-
   if (proximas.length === 0) {
     container.innerHTML = '<p class="text-sm text-slate-500 text-center py-8">Nenhuma viagem agendada</p>';
     return;
@@ -426,10 +378,8 @@ function statusLabel(s) {
 
 // ============ AGENDA ============
 function filterAgenda() {
-  const dataEl = document.getElementById('filtroData');
-  const statusEl = document.getElementById('filtroStatus');
-  const data = dataEl ? dataEl.value : '';
-  const status = statusEl ? statusEl.value : '';
+  const data = document.getElementById('filtroData').value;
+  const status = document.getElementById('filtroStatus').value;
 
   return getVisibleAgenda().filter((a) => {
     if (data && a.trip_date !== data) return false;
@@ -443,7 +393,6 @@ function filtrarAgenda() { renderAgenda(); }
 function renderAgenda() {
   const filtered = filterAgenda();
   const tbody = document.getElementById('agendaTable');
-  if (!tbody) return;
 
   if (filtered.length === 0) {
     tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-500 text-sm">Nenhuma viagem encontrada</td></tr>';
@@ -494,8 +443,8 @@ function renderAgenda() {
 }
 
 async function updateExcursion(id, patch) {
-  if (supabaseClient) {
-    const { error } = await supabaseClient.from('excursions').update(patch).eq('id', id);
+  if (supabase) {
+    const { error } = await supabase.from('excursions').update(patch).eq('id', id);
     if (error) { toast('❌ Erro ao atualizar: ' + error.message, true); return false; }
   } else {
     const v = agenda.find((a) => a.id === id);
@@ -564,7 +513,6 @@ function openSolicitacaoScreen() {
 
 function populateEscolaSelect() {
   const sel = document.getElementById('wEscola');
-  if (!sel) return;
   sel.innerHTML = schools.map((s) => `<option value="${s.id}">${s.name}</option>`).join('');
   if (currentUser.role === 'escola' && currentUser.schoolId) {
     sel.value = currentUser.schoolId;
@@ -577,31 +525,21 @@ function populateEscolaSelect() {
 function resetWizard() {
   wizardStep = 1;
   for (let i = 1; i <= 5; i++) {
-    document.getElementById('step' + i)?.classList.add('hidden');
-    const prog = document.getElementById('prog' + i);
-    if (prog) prog.className = i === 1 ? 'h-1.5 flex-1 bg-emerald-500 rounded' : 'h-1.5 flex-1 bg-slate-200 rounded';
+    document.getElementById('step' + i).classList.add('hidden');
+    document.getElementById('prog' + i).className = i === 1 ? 'h-1.5 flex-1 bg-emerald-500 rounded' : 'h-1.5 flex-1 bg-slate-200 rounded';
   }
-  document.getElementById('step1')?.classList.remove('hidden');
-  
-  const wStep = document.getElementById('wizardStep');
-  if (wStep) wStep.textContent = 1;
-  
-  document.getElementById('btnPrev')?.classList.add('hidden');
-  
-  const btnNext = document.getElementById('btnNext');
-  if (btnNext) btnNext.textContent = 'Próximo →';
-
-  ['wDestino', 'wCidade', 'wData', 'wHora', 'wHoraRetorno', 'wObservacoes'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  
-  const wAlunos = document.getElementById('wAlunos');
-  if (wAlunos) wAlunos.value = 0;
-  
-  const wAcompanhantes = document.getElementById('wAcompanhantes');
-  if (wAcompanhantes) wAcompanhantes.value = 0;
-
+  document.getElementById('step1').classList.remove('hidden');
+  document.getElementById('wizardStep').textContent = 1;
+  document.getElementById('btnPrev').classList.add('hidden');
+  document.getElementById('btnNext').textContent = 'Próximo →';
+  document.getElementById('wDestino').value = '';
+  document.getElementById('wCidade').value = '';
+  document.getElementById('wData').value = '';
+  document.getElementById('wHora').value = '';
+  document.getElementById('wHoraRetorno').value = '';
+  document.getElementById('wAlunos').value = 0;
+  document.getElementById('wAcompanhantes').value = 0;
+  document.getElementById('wObservacoes').value = '';
   const unico = document.querySelector('input[name="wRecorrencia"][value="unico"]');
   if (unico) unico.checked = true;
 }
@@ -622,26 +560,20 @@ function wizardNext() {
   if (!validateWizardStep(wizardStep)) return;
 
   if (wizardStep < 5) {
-    document.getElementById('step' + wizardStep)?.classList.add('hidden');
+    document.getElementById('step' + wizardStep).classList.add('hidden');
     wizardStep++;
-    document.getElementById('step' + wizardStep)?.classList.remove('hidden');
-    
-    const wStep = document.getElementById('wizardStep');
-    if (wStep) wStep.textContent = wizardStep;
+    document.getElementById('step' + wizardStep).classList.remove('hidden');
+    document.getElementById('wizardStep').textContent = wizardStep;
 
     for (let i = 1; i <= 5; i++) {
-      const prog = document.getElementById('prog' + i);
-      if (prog) {
-        prog.className = i <= wizardStep
-          ? 'h-1.5 flex-1 bg-emerald-500 rounded'
-          : 'h-1.5 flex-1 bg-slate-200 rounded';
-      }
+      document.getElementById('prog' + i).className = i <= wizardStep
+        ? 'h-1.5 flex-1 bg-emerald-500 rounded'
+        : 'h-1.5 flex-1 bg-slate-200 rounded';
     }
 
-    document.getElementById('btnPrev')?.classList.remove('hidden');
-    const btnNext = document.getElementById('btnNext');
+    document.getElementById('btnPrev').classList.remove('hidden');
     if (wizardStep === 5) {
-      if (btnNext) btnNext.textContent = '✓ Enviar Solicitação';
+      document.getElementById('btnNext').textContent = '✓ Enviar Solicitação';
       renderResumo();
     }
   } else {
@@ -651,25 +583,19 @@ function wizardNext() {
 
 function wizardPrev() {
   if (wizardStep > 1) {
-    document.getElementById('step' + wizardStep)?.classList.add('hidden');
+    document.getElementById('step' + wizardStep).classList.add('hidden');
     wizardStep--;
-    document.getElementById('step' + wizardStep)?.classList.remove('hidden');
-    
-    const wStep = document.getElementById('wizardStep');
-    if (wStep) wStep.textContent = wizardStep;
+    document.getElementById('step' + wizardStep).classList.remove('hidden');
+    document.getElementById('wizardStep').textContent = wizardStep;
 
     for (let i = 1; i <= 5; i++) {
-      const prog = document.getElementById('prog' + i);
-      if (prog) {
-        prog.className = i <= wizardStep
-          ? 'h-1.5 flex-1 bg-emerald-500 rounded'
-          : 'h-1.5 flex-1 bg-slate-200 rounded';
-      }
+      document.getElementById('prog' + i).className = i <= wizardStep
+        ? 'h-1.5 flex-1 bg-emerald-500 rounded'
+        : 'h-1.5 flex-1 bg-slate-200 rounded';
     }
 
-    const btnNext = document.getElementById('btnNext');
-    if (btnNext) btnNext.textContent = 'Próximo →';
-    if (wizardStep === 1) document.getElementById('btnPrev')?.classList.add('hidden');
+    document.getElementById('btnNext').textContent = 'Próximo →';
+    if (wizardStep === 1) document.getElementById('btnPrev').classList.add('hidden');
   }
 }
 
@@ -682,19 +608,15 @@ function renderResumo() {
   const horaRetorno = document.getElementById('wHoraRetorno').value;
   const alunos = parseInt(document.getElementById('wAlunos').value) || 0;
   const acompanhantes = parseInt(document.getElementById('wAcompanhantes').value) || 0;
-  const recEl = document.querySelector('input[name="wRecorrencia"]:checked');
-  const recorrencia = recEl ? recEl.value : 'unico';
+  const recorrencia = document.querySelector('input[name="wRecorrencia"]:checked').value;
 
-  const resumo = document.getElementById('resumoSolicitacao');
-  if (resumo) {
-    resumo.innerHTML = `
-      <div><strong>Escola:</strong> ${escola || '-'}</div>
-      <div><strong>Destino:</strong> ${destino || '-'} (${cidade || '-'})</div>
-      <div><strong>Data/Hora:</strong> ${data ? new Date(data + 'T00:00').toLocaleDateString('pt-BR') : '-'} às ${hora || '-'}${horaRetorno ? ' (retorno previsto ' + horaRetorno + ')' : ''}</div>
-      <div><strong>Alunos:</strong> ${alunos} + ${acompanhantes} acompanhantes = <strong>${alunos + acompanhantes} pessoas</strong></div>
-      <div><strong>Tipo:</strong> ${recorrencia === 'unico' ? 'Evento Único' : 'Continuado ' + recorrencia}</div>
-    `;
-  }
+  document.getElementById('resumoSolicitacao').innerHTML = `
+    <div><strong>Escola:</strong> ${escola || '-'}</div>
+    <div><strong>Destino:</strong> ${destino || '-'} (${cidade || '-'})</div>
+    <div><strong>Data/Hora:</strong> ${data ? new Date(data + 'T00:00').toLocaleDateString('pt-BR') : '-'} às ${hora || '-'}${horaRetorno ? ' (retorno previsto ' + horaRetorno + ')' : ''}</div>
+    <div><strong>Alunos:</strong> ${alunos} + ${acompanhantes} acompanhantes = <strong>${alunos + acompanhantes} pessoas</strong></div>
+    <div><strong>Tipo:</strong> ${recorrencia === 'unico' ? 'Evento Único' : 'Continuado ' + recorrencia}</div>
+  `;
 
   const total = alunos + acompanhantes;
   const micros = Math.floor(total / 32);
@@ -711,13 +633,10 @@ function renderResumo() {
     const foraMunicipio = cidade && !cidade.toLowerCase().includes('nova lima');
     if (foraMunicipio) sug += `<br/>⚠️ Viagem FORA de Nova Lima - será necessária <strong>ATF</strong>`;
   }
-  
-  const sugEl = document.getElementById('sugestaoVeiculos');
-  if (sugEl) sugEl.innerHTML = sug;
+  document.getElementById('sugestaoVeiculos').innerHTML = sug;
 }
 
 async function submitSolicitacao() {
-  const recEl = document.querySelector('input[name="wRecorrencia"]:checked');
   const nova = {
     school_id: document.getElementById('wEscola').value || null,
     destination: document.getElementById('wDestino').value,
@@ -727,14 +646,14 @@ async function submitSolicitacao() {
     return_time: document.getElementById('wHoraRetorno').value || null,
     students_count: parseInt(document.getElementById('wAlunos').value) || 0,
     companions_count: parseInt(document.getElementById('wAcompanhantes').value) || 0,
-    recurrence: recEl ? recEl.value : 'unico',
+    recurrence: document.querySelector('input[name="wRecorrencia"]:checked').value,
     notes: document.getElementById('wObservacoes').value || null,
     status: 'pending',
     created_by: currentUser?.id || null,
   };
 
-  if (supabaseClient) {
-    const { error } = await supabaseClient.from('excursions').insert([nova]);
+  if (supabase) {
+    const { error } = await supabase.from('excursions').insert([nova]);
     if (error) { toast('❌ Erro ao salvar: ' + error.message, true); return; }
     toast('✅ Solicitação enviada com sucesso!');
   } else {
@@ -752,8 +671,6 @@ async function submitSolicitacao() {
 // ============ VEÍCULOS ============
 function renderVeiculos() {
   const grid = document.getElementById('veiculosGrid');
-  if (!grid) return;
-  
   if (vehicles.length === 0) {
     grid.innerHTML = '<p class="text-sm text-slate-500 col-span-full text-center py-8">Nenhum veículo cadastrado</p>';
     return;
@@ -778,14 +695,10 @@ function renderVeiculos() {
 }
 
 function openVehicleModal() {
-  ['newVeiculoPlaca', 'newVeiculoCapacidade', 'newVeiculoCooperativa'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
+  ['newVeiculoPlaca', 'newVeiculoCapacidade', 'newVeiculoCooperativa'].forEach((id) => document.getElementById(id).value = '');
   document.getElementById('vehicleModal').classList.remove('hidden');
 }
 function closeVehicleModal() { document.getElementById('vehicleModal').classList.add('hidden'); }
-
 async function confirmAddVehicle() {
   const plate = document.getElementById('newVeiculoPlaca').value.trim();
   if (!plate) { toast('⚠️ Informe a placa.', true); return; }
@@ -796,8 +709,8 @@ async function confirmAddVehicle() {
     cooperative: document.getElementById('newVeiculoCooperativa').value.trim() || null,
     active: true,
   };
-  if (supabaseClient) {
-    const { error } = await supabaseClient.from('vehicles').insert([novo]);
+  if (supabase) {
+    const { error } = await supabase.from('vehicles').insert([novo]);
     if (error) { toast('❌ ' + error.message, true); return; }
   } else {
     novo.id = 'v' + Date.now();
@@ -812,21 +725,111 @@ async function confirmAddVehicle() {
 // ============ MOTORISTAS ============
 function renderMotoristas() {
   const tbody = document.getElementById('motoristasTable');
-  if (!tbody) return;
-
   if (drivers.length === 0) {
     tbody.innerHTML = '<tr><td colspan="5" class="text-center py-8 text-slate-500 text-sm">Nenhum motorista cadastrado</td></tr>';
     return;
   }
   tbody.innerHTML = drivers.map((m) => `
     <tr class="hover:bg-slate-50">
-      <td class="px-4 py-3 text-sm font-medium text-slate-800">${m.name}</td>
-      <td class="px-4 py-3 text-sm text-slate-600">${m.cnh || '-'}</td>
-      <td class="px-4 py-3 text-sm text-slate-600">${m.phone || '-'}</td>
-      <td class="px-4 py-3 text-sm text-slate-600">${m.cooperative || '-'}</td>
-      <td class="px-4 py-3 text-sm">
-        ${m.active === false ? '<span class="text-xs text-slate-400">Inativo</span>' : '<span class="text-xs text-emerald-600 font-medium">Ativo</span>'}
-      </td>
+      <td class="px-4 py-3 text-sm font-medium">${m.name}</td>
+      <td class="px-4 py-3 text-sm font-mono text-xs">${m.cnh || '-'}</td>
+      <td class="px-4 py-3 text-sm">${m.phone || '-'}</td>
+      <td class="px-4 py-3 text-sm">${m.cooperative || '-'}</td>
+      <td class="px-4 py-3 text-sm">${m.active === false ? '<span class="bg-slate-100 text-slate-500 px-2 py-1 rounded text-xs font-medium">Inativo</span>' : '<span class="bg-emerald-100 text-emerald-800 px-2 py-1 rounded text-xs font-medium">Ativo</span>'}</td>
     </tr>
   `).join('');
+}
+
+function openDriverModal() {
+  ['newMotoristaNome', 'newMotoristaCnh', 'newMotoristaTelefone', 'newMotoristaCooperativa'].forEach((id) => document.getElementById(id).value = '');
+  document.getElementById('driverModal').classList.remove('hidden');
+}
+function closeDriverModal() { document.getElementById('driverModal').classList.add('hidden'); }
+async function confirmAddDriver() {
+  const name = document.getElementById('newMotoristaNome').value.trim();
+  if (!name) { toast('⚠️ Informe o nome.', true); return; }
+  const novo = {
+    name,
+    cnh: document.getElementById('newMotoristaCnh').value.trim() || null,
+    phone: document.getElementById('newMotoristaTelefone').value.trim() || null,
+    cooperative: document.getElementById('newMotoristaCooperativa').value.trim() || null,
+    active: true,
+  };
+  if (supabase) {
+    const { error } = await supabase.from('drivers').insert([novo]);
+    if (error) { toast('❌ ' + error.message, true); return; }
+  } else {
+    novo.id = 'd' + Date.now();
+    drivers.push(novo);
+  }
+  await loadDrivers();
+  renderMotoristas();
+  closeDriverModal();
+  toast('✅ Motorista cadastrado!');
+}
+
+// ============ PDF ============
+function exportPDF(tipo = 'agenda') {
+  if (!window.jspdf) {
+    toast('⚠️ Não foi possível carregar o gerador de PDF (verifique sua internet) e tente novamente.', true);
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const rows = filterAgenda().sort((a, b) => (a.trip_date + a.departure_time).localeCompare(b.trip_date + b.departure_time));
+
+  doc.setFillColor(5, 150, 105);
+  doc.rect(0, 0, 210, 25, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  doc.text('BORA LÁ - EXCURSÕES', 14, 16);
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Semed - Nova Lima/MG', 196, 16, { align: 'right' });
+
+  doc.setTextColor(0, 0, 0);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'bold');
+
+  if (tipo === 'agenda') {
+    doc.text('Agenda de Viagens', 14, 40);
+    doc.autoTable({
+      startY: 45,
+      head: [['Data', 'Hora', 'Escola', 'Destino', 'Cidade', 'Alunos', 'Status']],
+      body: rows.map((a) => [
+        new Date(a.trip_date + 'T00:00').toLocaleDateString('pt-BR'),
+        a.departure_time, schoolName(a.school_id), a.destination, a.city || '-', a.students_count, statusLabel(a.status),
+      ]),
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [5, 150, 105] },
+    });
+  }
+
+  const pages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')} - Página ${i} de ${pages}`, 14, 290);
+  }
+
+  doc.save(`bora-la-${tipo}-${Date.now()}.pdf`);
+  toast('📄 PDF gerado com sucesso!');
+}
+
+// ============ TOAST ============
+function toast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  const m = document.getElementById('toastMsg');
+  m.textContent = msg;
+  m.className = 'text-sm font-medium ' + (isError ? 'text-red-600' : 'text-slate-800');
+  t.classList.remove('hidden');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(() => t.classList.add('hidden'), 3000);
+}
+
+// ============ SERVICE WORKER (PWA) ============
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch((e) => console.log('SW:', e));
 }
