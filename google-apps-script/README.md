@@ -11,7 +11,7 @@ nenhuma escola precisa ter (ou autorizar) uma conta Google só pra isso.
 2. Apague o conteúdo padrão (`function myFunction() {...}`) e cole todo o conteúdo do
    arquivo [`Code.gs`](Code.gs) desta pasta.
 3. Confira a constante `FOLDER_ID` no topo do arquivo — já vem preenchida com o ID da
-   pasta que você passou (`https://drive.google.com/drive/folders/1mYhrqfUE-H6KjKzHNf0aMNZh_oBkM-Sa`).
+   pasta que você passou (`https://drive.google.com/drive/folders/1e5DmJxI9t57pSdMMMIYtgQLh4Wg4GJrl`).
    Se um dia trocar de pasta, troque esse ID (é o trecho depois de `/folders/` no link).
 4. Clique em **Salvar projeto** (ícone de disquete) e dê um nome, ex: "Bora Lá - Upload Drive".
 5. Clique em **Implantar → Nova implantação**.
